@@ -1,46 +1,75 @@
 import { useEffect, useState } from "react";
 import PageBackdrop from "../shared/PageBackdrop";
-import { ROLE_PORTRAIT } from "../../types/game";
-import { preloadAssets } from "../../lib/api";
+import type { Role } from "../../types/game";
 
 interface SplashScreenProps {
   onComplete?: () => void;
 }
 
-const PRELOAD_URLS = [
-  "/assets/crown.png",
-  "/assets/skyline.png",
-  ...Object.values(ROLE_PORTRAIT),
-  "/assets/rahul-avatar.png",
-  "/assets/aman-avatar.png",
-  "/assets/priya-avatar.png",
-  "/assets/neha-avatar.png",
-  "/assets/vikram-avatar.png",
-  "/assets/isha-avatar.png",
+/** Lightweight JPEGs (~15–40 KB each) so splash loads fast on mobile/tunnel. */
+const SPLASH_IMAGES: Record<Role | "crown", string> = {
+  crown: "/assets/splash/crown.jpg",
+  raja: "/assets/splash/raja-portrait.jpg",
+  sipahi: "/assets/splash/sipahi.jpg",
+  mantri: "/assets/splash/mantri.jpg",
+  chor: "/assets/splash/chor.jpg",
+};
+
+const SPLASH_ROLES: { role: Role; label: string }[] = [
+  { role: "raja", label: "RAJA" },
+  { role: "sipahi", label: "SIPAHI" },
+  { role: "mantri", label: "MANTRI" },
+  { role: "chor", label: "CHOR" },
 ];
+
+function preloadImages(urls: string[]): Promise<void> {
+  let loaded = 0;
+  const total = urls.length;
+  return new Promise((resolve) => {
+    if (total === 0) {
+      resolve();
+      return;
+    }
+    const done = () => {
+      loaded += 1;
+      if (loaded >= total) resolve();
+    };
+    for (const url of urls) {
+      const img = new Image();
+      img.onload = done;
+      img.onerror = done;
+      img.src = url;
+    }
+  });
+}
 
 const SplashScreen = ({ onComplete }: SplashScreenProps) => {
   const [progress, setProgress] = useState(0);
+  const [status, setStatus] = useState("Loading the royal court…");
 
   useEffect(() => {
-    preloadAssets(PRELOAD_URLS);
-  }, []);
+    let cancelled = false;
+    const urls = [
+      SPLASH_IMAGES.crown,
+      ...SPLASH_ROLES.map((r) => SPLASH_IMAGES[r.role]),
+    ];
 
-  useEffect(() => {
-    const duration = 2800;
-    const interval = 30;
-    const timer = setInterval(() => {
-      setProgress((prev) => {
-        const next = prev + 100 / (duration / interval);
-        if (next >= 100) {
-          clearInterval(timer);
-          setTimeout(() => onComplete?.(), 250);
-          return 100;
-        }
-        return next;
-      });
-    }, interval);
-    return () => clearInterval(timer);
+    const tick = setInterval(() => {
+      setProgress((p) => Math.min(p + 2, 90));
+    }, 60);
+
+    void preloadImages(urls).then(() => {
+      if (cancelled) return;
+      clearInterval(tick);
+      setProgress(100);
+      setStatus("Ready!");
+      setTimeout(() => onComplete?.(), 300);
+    });
+
+    return () => {
+      cancelled = true;
+      clearInterval(tick);
+    };
   }, [onComplete]);
 
   return (
@@ -59,8 +88,9 @@ const SplashScreen = ({ onComplete }: SplashScreenProps) => {
 
         <div className="relative z-10 flex flex-1 flex-col items-center px-6 pb-8 pt-10 sm:px-10">
           <img
-            src="/assets/crown.png"
+            src={SPLASH_IMAGES.crown}
             alt=""
+            fetchPriority="high"
             className="mb-3 h-14 w-14 object-contain drop-shadow-[0_0_20px_rgba(255,200,46,0.5)]"
           />
 
@@ -72,23 +102,16 @@ const SplashScreen = ({ onComplete }: SplashScreenProps) => {
           </p>
 
           <div className="mt-8 grid w-full max-w-[420px] grid-cols-4 gap-3">
-            {(
-              [
-                ["raja", "RAJA"],
-                ["sipahi", "SIPAHI"],
-                ["mantri", "MANTRI"],
-                ["chor", "CHOR"],
-              ] as const
-            ).map(([role, label]) => (
+            {SPLASH_ROLES.map(({ role, label }) => (
               <div
                 key={role}
                 className="overflow-hidden rounded-2xl border border-[var(--border-soft)] bg-black/30 shadow-lg"
               >
                 <img
-                  src={ROLE_PORTRAIT[role]}
+                  src={SPLASH_IMAGES[role]}
                   alt={label}
-                  loading="eager"
-                  decoding="async"
+                  fetchPriority="high"
+                  decoding="sync"
                   className="aspect-[3/4] w-full object-cover object-top"
                 />
                 <p className="bg-black/50 py-1 text-center text-[10px] font-bold tracking-wide text-[var(--gold-2)]">
@@ -105,9 +128,7 @@ const SplashScreen = ({ onComplete }: SplashScreenProps) => {
                 style={{ width: `${progress}%` }}
               />
             </div>
-            <p className="mt-3 text-center text-[13px] font-semibold text-white/60">
-              Loading the royal court…
-            </p>
+            <p className="mt-3 text-center text-[13px] font-semibold text-white/60">{status}</p>
           </div>
         </div>
 
