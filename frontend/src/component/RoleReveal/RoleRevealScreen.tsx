@@ -4,9 +4,9 @@ import { useGame } from "../../state/gameStore";
 import {
   ROLE_ACCENT,
   ROLE_CARD_BG,
+  ROLE_CARD_IMAGE,
   ROLE_EMOJI,
   ROLE_LABEL,
-  ROLE_PORTRAIT,
   ROLE_REVEAL_TEXT,
   SHUFFLE_ROLES,
   type Role,
@@ -31,8 +31,10 @@ const RoleCardFace = ({ role, shuffling }: { role: Role; shuffling?: boolean }) 
       <CornerFlourish className="bottom-2.5 left-2.5 -rotate-90" />
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(255,255,255,0.12),transparent_55%)]" />
       <img
-        src={ROLE_PORTRAIT[role]}
+        src={ROLE_CARD_IMAGE[role]}
         alt={ROLE_LABEL[role]}
+        loading="eager"
+        decoding="sync"
         className="h-[180px] w-full object-cover object-top opacity-95"
       />
       <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black via-black/90 to-transparent px-3 pb-5 pt-10 text-center">
@@ -55,6 +57,27 @@ const RoleRevealScreen = () => {
   const isHost = !!me?.isHost;
   const [phase, setPhase] = useState<"idle" | "shuffle" | "revealed">("idle");
   const [flashRole, setFlashRole] = useState<Role>("raja");
+  const [imagesReady, setImagesReady] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.all(
+      SHUFFLE_ROLES.map(
+        (r) =>
+          new Promise<void>((resolve) => {
+            const img = new Image();
+            img.onload = () => resolve();
+            img.onerror = () => resolve();
+            img.src = ROLE_CARD_IMAGE[r];
+          }),
+      ),
+    ).then(() => {
+      if (!cancelled) setImagesReady(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (phase !== "shuffle" || !role) return;
@@ -76,7 +99,7 @@ const RoleRevealScreen = () => {
   }, [phase, role, state.soundEnabled]);
 
   const onTapCard = () => {
-    if (phase !== "idle") return;
+    if (phase !== "idle" || !imagesReady) return;
     setPhase("shuffle");
   };
 
@@ -97,7 +120,9 @@ const RoleRevealScreen = () => {
               <CornerFlourish className="bottom-2.5 left-2.5 -rotate-90" />
               <div className="flex h-full flex-col items-center justify-center">
                 <span className="font-display text-[72px] font-black text-[var(--gold-2)]">?</span>
-                <p className="text-[12px] font-semibold text-white/50">Tap to shuffle</p>
+                <p className="text-[12px] font-semibold text-white/50">
+                  {imagesReady ? "Tap to shuffle" : "Loading cards…"}
+                </p>
               </div>
             </button>
             <p className="text-[13px] text-white/55">Cards will shuffle — only you see your role</p>
@@ -144,8 +169,9 @@ const RoleRevealScreen = () => {
               <CornerFlourish className="left-2.5 top-2.5" />
               <CornerFlourish className="right-2.5 top-2.5 rotate-90" />
               <img
-                src={ROLE_PORTRAIT[role]}
+                src={ROLE_CARD_IMAGE[role]}
                 alt={ROLE_LABEL[role]}
+                loading="eager"
                 className="relative h-[260px] w-full object-cover object-top"
               />
               <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-[#12081f] via-[#12081f]/95 to-transparent px-3 pb-4 pt-14">

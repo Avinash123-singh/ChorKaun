@@ -1,3 +1,4 @@
+import { useCallback } from "react";
 import { GameProvider, useGame } from "./state/gameStore";
 import SplashScreen from "./component/Splash/SplashScreen";
 import HomeScreen from "./component/Home/HomeScreen";
@@ -39,9 +40,10 @@ const AppShell = () => {
   const { state, setScreen } = useGame();
   const { screen } = state;
   const backHome = () => setScreen("home");
+  const finishSplash = useCallback(() => setScreen("home"), [setScreen]);
 
   if (screen === "splash") {
-    return <SplashScreen onComplete={() => setScreen("home")} />;
+    return <SplashScreen onComplete={finishSplash} />;
   }
 
   let body;

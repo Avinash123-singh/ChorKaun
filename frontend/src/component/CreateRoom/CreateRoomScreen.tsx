@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Lock, Unlock, Users } from "lucide-react";
 import ScreenShell from "../shared/ScreenShell";
 import { useGame } from "../../state/gameStore";
-import { ROLE_ACCENT, ROLE_LABEL, ROLE_PORTRAIT } from "../../types/game";
+import { ROLE_ACCENT, ROLE_CARD_IMAGE, ROLE_LABEL } from "../../types/game";
 
 const ROUND_OPTIONS = [1, 3, 5, 7];
 
@@ -46,8 +46,10 @@ const CreateRoomScreen = ({ onBack }: CreateRoomScreenProps) => {
               style={{ borderColor: `${ROLE_ACCENT[role]}99` }}
             >
               <img
-                src={ROLE_PORTRAIT[role]}
+                src={ROLE_CARD_IMAGE[role]}
                 alt={ROLE_LABEL[role]}
+                loading="eager"
+                decoding="async"
                 className="aspect-[3/4] h-auto w-full object-cover object-[center_15%]"
               />
               <p

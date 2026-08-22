@@ -58,6 +58,14 @@ export const ROLE_PORTRAIT: Record<Role, string> = {
   chor: "/assets/roles/chor.png",
 };
 
+/** Fast-loading JPEGs for splash, create/join, and other UI cards. */
+export const ROLE_CARD_IMAGE: Record<Role, string> = {
+  raja: "/assets/splash/raja-portrait.jpg",
+  sipahi: "/assets/splash/sipahi.jpg",
+  mantri: "/assets/splash/mantri.jpg",
+  chor: "/assets/splash/chor.jpg",
+};
+
 export const ROLE_ACCENT: Record<Role, string> = {
   raja: "#ffc82e",
   sipahi: "#3dd68c",

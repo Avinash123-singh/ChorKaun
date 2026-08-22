@@ -68,6 +68,57 @@ function persistProfile(profile: UserProfile) {
   }
 }
 
+function clearProfileStorage() {
+  try {
+    localStorage.removeItem(PROFILE_KEY);
+    localStorage.removeItem(PROFILE_CACHE_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+function profileFromUser(user: {
+  id: string;
+  name: string;
+  avatar: string;
+  level: number;
+  coins: number;
+  gamesPlayed: number;
+  wins: number;
+}): UserProfile {
+  return {
+    id: user.id,
+    name: user.name,
+    avatar: user.avatar,
+    level: user.level,
+    coins: user.coins,
+    gamesPlayed: user.gamesPlayed,
+    wins: user.wins,
+    setupComplete: true,
+  };
+}
+
+/** Load server profile or recreate from cache when DB was reset (stale local id). */
+async function resolveProfileFromServer(
+  storedId: string,
+  cached: UserProfile,
+): Promise<UserProfile | null> {
+  if (storedId) {
+    const user = await apiGetUser(storedId);
+    if (user) return profileFromUser(user);
+  }
+
+  if (cached.setupComplete && cached.name.trim().length >= 2) {
+    const user = await apiCreateUser(cached.name.trim(), cached.avatar);
+    const profile = profileFromUser(user);
+    persistProfile(profile);
+    return profile;
+  }
+
+  if (storedId) clearProfileStorage();
+  return null;
+}
+
 function persistSession(roomCode: string, screen: Screen) {
   try {
     if (roomCode) sessionStorage.setItem(SESSION_ROOM_KEY, roomCode);
@@ -440,25 +491,17 @@ export function GameProvider({ children }: { children: ReactNode }) {
 
   // Restore profile from server + reconnect socket; cache keeps profile across refresh.
   useEffect(() => {
-    const id = localStorage.getItem(PROFILE_KEY) || cachedBootProfile.id;
-    if (!id) return;
+    const storedId = localStorage.getItem(PROFILE_KEY) || cachedBootProfile.id || "";
+    if (!storedId && !cachedBootProfile.setupComplete) return;
     void (async () => {
       try {
-        const user = await apiGetUser(id);
-        if (user) {
-          const profile: UserProfile = {
-            id: user.id,
-            name: user.name,
-            avatar: user.avatar,
-            level: user.level,
-            coins: user.coins,
-            gamesPlayed: user.gamesPlayed,
-            wins: user.wins,
-            setupComplete: true,
-          };
-          dispatch({ type: "SET_PROFILE", profile });
+        const profile = await resolveProfileFromServer(storedId, cachedBootProfile);
+        if (!profile) {
+          dispatch({ type: "SET_CONNECTED", connected: false });
+          return;
         }
-        await connectSocket(id);
+        dispatch({ type: "SET_PROFILE", profile });
+        await connectSocket(profile.id);
         dispatch({ type: "SET_CONNECTED", connected: true });
         wireSocket();
       } catch {
@@ -563,8 +606,15 @@ export function GameProvider({ children }: { children: ReactNode }) {
     }
   }, [state.suspenseMusic, state.screen]);
 
-  const ensureSocket = async (userId: string) => {
-    await connectSocket(userId);
+  const ensureSocket = async (profile: UserProfile) => {
+    try {
+      await connectSocket(profile.id);
+    } catch (err) {
+      const restored = await resolveProfileFromServer("", profile);
+      if (!restored) throw err;
+      dispatch({ type: "SET_PROFILE", profile: restored });
+      await connectSocket(restored.id);
+    }
     dispatch({ type: "SET_CONNECTED", connected: true });
     wireSocket();
   };
@@ -574,23 +624,15 @@ export function GameProvider({ children }: { children: ReactNode }) {
     let user;
     if (state.userProfile.id) {
       user = await apiUpdateUser(state.userProfile.id, { name: trimmed, avatar });
+      if (!user) user = await apiCreateUser(trimmed, avatar);
     } else {
       user = await apiCreateUser(trimmed, avatar);
-      localStorage.setItem(PROFILE_KEY, user.id);
     }
     if (!user) throw new Error("Could not save profile");
-    const profile: UserProfile = {
-      id: user.id,
-      name: user.name,
-      avatar: user.avatar,
-      level: user.level,
-      coins: user.coins,
-      gamesPlayed: user.gamesPlayed,
-      wins: user.wins,
-      setupComplete: true,
-    };
+    const profile = profileFromUser(user);
+    persistProfile(profile);
     dispatch({ type: "SET_PROFILE", profile });
-    await ensureSocket(user.id);
+    await ensureSocket(profile);
   }, [state.userProfile.id, wireSocket]);
 
   const beginCreateRoom = useCallback(() => {
@@ -611,7 +653,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
     async (roomName: string, totalRounds: number, isPrivate: boolean) => {
       if (state.soundEnabled) playClick();
       try {
-        await ensureSocket(state.userProfile.id);
+        await ensureSocket(state.userProfile);
         const ack = await socketEmit<{ ok: boolean; error?: string; room?: any }>("room:create", {
           roomName,
           totalRounds,
@@ -626,7 +668,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
         return { ok: false, error: e?.message || "Server offline" };
       }
     },
-    [state.userProfile.id, state.soundEnabled, wireSocket],
+    [state.userProfile, state.soundEnabled, wireSocket],
   );
 
   const joinRoom = useCallback(
@@ -636,7 +678,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
         return { ok: false, error: "Enter a valid 6-digit room code" };
       }
       try {
-        await ensureSocket(state.userProfile.id);
+        await ensureSocket(state.userProfile);
         const ack = await socketEmit<{
           ok: boolean;
           error?: string;
@@ -674,12 +716,12 @@ export function GameProvider({ children }: { children: ReactNode }) {
         return { ok: false, error: e?.message || "Server offline" };
       }
     },
-    [state.userProfile.id, wireSocket],
+    [state.userProfile, wireSocket],
   );
 
   const joinPublicMatch = useCallback(async () => {
     try {
-      await ensureSocket(state.userProfile.id);
+      await ensureSocket(state.userProfile);
       const ack = await socketEmit<{ ok: boolean; error?: string; room?: any }>("room:join-public");
       if (!ack.ok || !ack.room) {
         return { ok: false, error: ack.error || "No public rooms open" };
@@ -699,7 +741,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
     } catch {
       return { ok: false, error: "Server offline" };
     }
-  }, [state.userProfile.id, wireSocket]);
+  }, [state.userProfile, wireSocket]);
 
   const value: GameContextValue = {
     state,

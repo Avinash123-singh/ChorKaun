@@ -2,7 +2,7 @@ import { useState } from "react";
 import { KeyRound, Sparkles } from "lucide-react";
 import ScreenShell from "../shared/ScreenShell";
 import { useGame } from "../../state/gameStore";
-import { ROLE_ACCENT, ROLE_LABEL, ROLE_PORTRAIT } from "../../types/game";
+import { ROLE_ACCENT, ROLE_CARD_IMAGE, ROLE_LABEL } from "../../types/game";
 
 interface JoinRoomScreenProps {
   onBack: () => void;
@@ -49,8 +49,10 @@ const JoinRoomScreen = ({ onBack }: JoinRoomScreenProps) => {
               style={{ borderColor: `${ROLE_ACCENT[role]}88` }}
             >
               <img
-                src={ROLE_PORTRAIT[role]}
+                src={ROLE_CARD_IMAGE[role]}
                 alt={ROLE_LABEL[role]}
+                loading="eager"
+                decoding="async"
                 className="aspect-[3/4] w-full object-cover object-[center_12%]"
               />
               <p className="bg-black/65 py-0.5 text-center text-[8px] font-black text-white/80">

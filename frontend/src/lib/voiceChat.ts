@@ -44,6 +44,14 @@ function shouldInitiate(peerId: string) {
   return myId.localeCompare(peerId) < 0;
 }
 
+function unlockAudioPlayback() {
+  void audioCtx?.resume();
+  for (const audio of remoteAudio.values()) {
+    audio.muted = !listening;
+    void audio.play().catch(() => undefined);
+  }
+}
+
 function applyListenMute() {
   for (const audio of remoteAudio.values()) {
     audio.muted = !listening;
@@ -51,14 +59,26 @@ function applyListenMute() {
   }
 }
 
+function attachLocalTracks(pc: RTCPeerConnection) {
+  if (!mediaStream) return;
+  const senders = pc.getSenders();
+  for (const track of mediaStream.getTracks()) {
+    if (!senders.some((s) => s.track?.id === track.id)) {
+      pc.addTrack(track, mediaStream);
+    }
+  }
+}
+
 async function ensurePc(peerId: string): Promise<RTCPeerConnection> {
   let pc = peers.get(peerId);
-  if (pc) return pc;
+  if (pc) {
+    attachLocalTracks(pc);
+    return pc;
+  }
 
   pc = new RTCPeerConnection(ICE);
   peers.set(peerId, pc);
-
-  mediaStream?.getTracks().forEach((t) => pc!.addTrack(t, mediaStream!));
+  attachLocalTracks(pc);
 
   pc.onicecandidate = (e) => {
     if (e.candidate) signal(peerId, { type: "ice", candidate: e.candidate });
@@ -70,6 +90,7 @@ async function ensurePc(peerId: string): Promise<RTCPeerConnection> {
       audio = document.createElement("audio");
       audio.autoplay = true;
       audio.setAttribute("playsinline", "true");
+      (audio as HTMLAudioElement & { playsInline?: boolean }).playsInline = true;
       document.body.appendChild(audio);
       remoteAudio.set(peerId, audio);
     }
@@ -78,18 +99,8 @@ async function ensurePc(peerId: string): Promise<RTCPeerConnection> {
     void audio.play().catch(() => undefined);
   };
 
-  pc.onnegotiationneeded = async () => {
-    if (!shouldInitiate(peerId) || !speaking) return;
-    try {
-      makingOffer.set(peerId, true);
-      const offer = await pc!.createOffer();
-      await pc!.setLocalDescription(offer);
-      signal(peerId, { type: "offer", sdp: pc!.localDescription });
-    } catch {
-      /* ignore */
-    } finally {
-      makingOffer.set(peerId, false);
-    }
+  pc.onnegotiationneeded = () => {
+    if (speaking) void callPeerAsSpeaker(peerId);
   };
 
   pc.onconnectionstatechange = () => {
@@ -101,22 +112,28 @@ async function ensurePc(peerId: string): Promise<RTCPeerConnection> {
   return pc;
 }
 
-async function callPeer(peerId: string) {
+/** Speaker always sends an offer so listeners can hear (UUID order must not block this). */
+async function callPeerAsSpeaker(peerId: string) {
+  if (peerId === myId || !speaking) return;
+  const pc = await ensurePc(peerId);
+  if (makingOffer.get(peerId)) return;
+  if (pc.signalingState !== "stable") return;
+
+  try {
+    makingOffer.set(peerId, true);
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    signal(peerId, { type: "offer", sdp: pc.localDescription });
+  } catch {
+    /* ignore */
+  } finally {
+    makingOffer.set(peerId, false);
+  }
+}
+
+async function prepareToHear(peerId: string) {
   if (peerId === myId) return;
   await ensurePc(peerId);
-  if (speaking && shouldInitiate(peerId)) {
-    const pc = peers.get(peerId)!;
-    try {
-      makingOffer.set(peerId, true);
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      signal(peerId, { type: "offer", sdp: pc.localDescription });
-    } catch {
-      /* ignore */
-    } finally {
-      makingOffer.set(peerId, false);
-    }
-  }
 }
 
 async function handleSignal(from: string, data: any) {
@@ -132,8 +149,10 @@ async function handleSignal(from: string, data: any) {
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       signal(from, { type: "answer", sdp: pc.localDescription });
+      unlockAudioPlayback();
     } else if (data.type === "answer") {
       await pc.setRemoteDescription(data.sdp);
+      unlockAudioPlayback();
     } else if (data.type === "ice" && data.candidate) {
       try {
         await pc.addIceCandidate(data.candidate);
@@ -169,8 +188,12 @@ function wireSocketHandlers() {
 
   s.on("voice:peer-mic", ({ playerId, micOn }: { playerId: string; micOn: boolean }) => {
     if (playerId === myId) return;
-    if (micOn) void callPeer(playerId);
-    if (!micOn) teardownPeer(playerId);
+    if (micOn) {
+      void prepareToHear(playerId);
+      if (speaking) void callPeerAsSpeaker(playerId);
+    } else {
+      teardownPeer(playerId);
+    }
   });
 
   s.on("voice:peer-left", ({ playerId }: { playerId: string }) => {
@@ -179,7 +202,9 @@ function wireSocketHandlers() {
 
   s.on("room:update", (room: { players?: { id: string; micOn?: boolean }[] }) => {
     for (const p of room.players || []) {
-      if (p.id !== myId && p.micOn && !peers.has(p.id)) void callPeer(p.id);
+      if (p.id === myId) continue;
+      if (speaking) void callPeerAsSpeaker(p.id);
+      else if (listening && p.micOn) void prepareToHear(p.id);
     }
   });
 }
@@ -187,12 +212,16 @@ function wireSocketHandlers() {
 async function ensureAudioContext() {
   if (!audioCtx) {
     audioCtx = new AudioContext();
-    await audioCtx.resume();
   }
+  await audioCtx.resume();
 }
 
 /** Turn mic ON/OFF — only you transmit when ON; others hear if their listen is ON. */
-export async function setSpeaking(on: boolean, playerId: string): Promise<boolean> {
+export async function setSpeaking(
+  on: boolean,
+  playerId: string,
+  roomPeerIds: string[] = [],
+): Promise<boolean> {
   myId = playerId;
   wireSocketHandlers();
   speaking = on;
@@ -207,20 +236,24 @@ export async function setSpeaking(on: boolean, playerId: string): Promise<boolea
     return true;
   }
 
-  if (mediaStream?.active) return true;
-
   try {
-    mediaStream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-      video: false,
-    });
+    if (!mediaStream?.active) {
+      mediaStream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        video: false,
+      });
+    }
     await ensureAudioContext();
     const source = audioCtx!.createMediaStreamSource(mediaStream);
     analyser = audioCtx!.createAnalyser();
     analyser.fftSize = 256;
     source.connect(analyser);
-    pumpLevels();
-    for (const id of peers.keys()) void callPeer(id);
+    if (!rafId) pumpLevels();
+    unlockAudioPlayback();
+
+    for (const id of roomPeerIds) {
+      if (id !== myId) await callPeerAsSpeaker(id);
+    }
     return true;
   } catch {
     speaking = false;
@@ -233,6 +266,7 @@ export async function setSpeaking(on: boolean, playerId: string): Promise<boolea
 export function setListening(on: boolean) {
   listening = on;
   applyListenMute();
+  if (on) unlockAudioPlayback();
 }
 
 export function isSpeaking() {
@@ -246,8 +280,9 @@ export function isListening() {
 export async function connectToSpeakers(playerId: string, speakerIds: string[]) {
   myId = playerId;
   wireSocketHandlers();
+  unlockAudioPlayback();
   for (const id of speakerIds) {
-    if (id !== myId) await callPeer(id);
+    if (id !== myId) await prepareToHear(id);
   }
 }
 
@@ -272,10 +307,13 @@ export function subscribeVoiceLevel(fn: (level: number) => void): () => void {
   };
 }
 
-// Legacy aliases
-export async function enableVoice(playerId: string, peerIds: string[] = []) {
-  const ok = await setSpeaking(true, playerId);
-  if (ok) await connectToSpeakers(playerId, peerIds);
+export async function enableVoice(
+  playerId: string,
+  _activeSpeakerIds: string[] = [],
+  roomPeerIds: string[] = _activeSpeakerIds,
+) {
+  const ok = await setSpeaking(true, playerId, roomPeerIds);
+  if (ok) await connectToSpeakers(playerId, _activeSpeakerIds);
   return ok;
 }
 

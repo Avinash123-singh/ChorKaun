@@ -37,6 +37,7 @@ const VoiceChatFab = () => {
   if (!VOICE_CHAT_SCREENS.has(state.screen)) return null;
 
   const speakerIds = state.players.filter((p) => p.micOn && p.id !== state.myPlayerId).map((p) => p.id);
+  const roomPeerIds = state.players.filter((p) => p.id !== state.myPlayerId).map((p) => p.id);
 
   const toggleSpeak = async () => {
     setErr("");
@@ -46,7 +47,7 @@ const VoiceChatFab = () => {
       setMicEnabled(false);
       return;
     }
-    const ok = await setSpeaking(true, pid);
+    const ok = await setSpeaking(true, pid, roomPeerIds);
     if (!ok) {
       setErr("Allow mic");
       setMicEnabled(false);

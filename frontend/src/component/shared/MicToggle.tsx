@@ -28,7 +28,8 @@ const MicToggle = ({ compact, className = "" }: MicToggleProps) => {
       return;
     }
     const peers = state.players.filter((p) => p.id !== state.myPlayerId && p.micOn).map((p) => p.id);
-    const ok = await enableVoice(state.myPlayerId, peers);
+    const roomPeerIds = state.players.filter((p) => p.id !== state.myPlayerId).map((p) => p.id);
+    const ok = await enableVoice(state.myPlayerId, peers, roomPeerIds);
     if (!ok) {
       setError("Allow microphone access in your browser to talk.");
       setMicEnabled(false);

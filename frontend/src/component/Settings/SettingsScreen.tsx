@@ -65,7 +65,10 @@ const SettingsScreen = ({ onBack }: SettingsScreenProps) => {
             const peers = state.players
               .filter((p) => p.id !== state.myPlayerId && p.micOn)
               .map((p) => p.id);
-            const ok = await enableVoice(state.myPlayerId || state.userProfile.id, peers);
+            const roomPeerIds = state.players
+              .filter((p) => p.id !== state.myPlayerId)
+              .map((p) => p.id);
+            const ok = await enableVoice(state.myPlayerId || state.userProfile.id, peers, roomPeerIds);
             setMicEnabled(ok);
           }}
         />

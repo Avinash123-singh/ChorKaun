@@ -86,7 +86,10 @@ const LobbyScreen = () => {
                     const peers = state.players
                       .filter((p) => p.id !== state.myPlayerId && p.micOn)
                       .map((p) => p.id);
-                    const ok = await enableVoice(state.myPlayerId, peers);
+                    const roomPeerIds = state.players
+                      .filter((p) => p.id !== state.myPlayerId)
+                      .map((p) => p.id);
+                    const ok = await enableVoice(state.myPlayerId, peers, roomPeerIds);
                     setMicEnabled(ok);
                   }}
                 />

@@ -1,18 +1,14 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import PageBackdrop from "../shared/PageBackdrop";
-import type { Role } from "../../types/game";
+import { ROLE_CARD_IMAGE, type Role } from "../../types/game";
 
 interface SplashScreenProps {
   onComplete?: () => void;
 }
 
-/** Lightweight JPEGs (~15–40 KB each) so splash loads fast on mobile/tunnel. */
 const SPLASH_IMAGES: Record<Role | "crown", string> = {
   crown: "/assets/splash/crown.jpg",
-  raja: "/assets/splash/raja-portrait.jpg",
-  sipahi: "/assets/splash/sipahi.jpg",
-  mantri: "/assets/splash/mantri.jpg",
-  chor: "/assets/splash/chor.jpg",
+  ...ROLE_CARD_IMAGE,
 };
 
 const SPLASH_ROLES: { role: Role; label: string }[] = [
@@ -22,7 +18,6 @@ const SPLASH_ROLES: { role: Role; label: string }[] = [
   { role: "chor", label: "CHOR" },
 ];
 
-/** Always show splash at least this long so users can see the branding. */
 const MIN_SPLASH_MS = 4200;
 const READY_PAUSE_MS = 600;
 
@@ -54,19 +49,18 @@ function wait(ms: number) {
 const SplashScreen = ({ onComplete }: SplashScreenProps) => {
   const [progress, setProgress] = useState(0);
   const [status, setStatus] = useState("Loading the royal court…");
+  const onCompleteRef = useRef(onComplete);
+  onCompleteRef.current = onComplete;
 
   useEffect(() => {
     let cancelled = false;
-    const urls = [
-      SPLASH_IMAGES.crown,
-      ...SPLASH_ROLES.map((r) => SPLASH_IMAGES[r.role]),
-    ];
+    const urls = [SPLASH_IMAGES.crown, ...SPLASH_ROLES.map((r) => SPLASH_IMAGES[r.role])];
     const started = Date.now();
 
     const tick = setInterval(() => {
       const elapsed = Date.now() - started;
       const pct = Math.min(95, Math.round((elapsed / MIN_SPLASH_MS) * 95));
-      setProgress(pct);
+      setProgress((prev) => Math.max(prev, pct));
     }, 50);
 
     void Promise.all([preloadImages(urls), wait(MIN_SPLASH_MS)]).then(() => {
@@ -75,7 +69,7 @@ const SplashScreen = ({ onComplete }: SplashScreenProps) => {
       setProgress(100);
       setStatus("Ready!");
       setTimeout(() => {
-        if (!cancelled) onComplete?.();
+        if (!cancelled) onCompleteRef.current?.();
       }, READY_PAUSE_MS);
     });
 
@@ -83,7 +77,7 @@ const SplashScreen = ({ onComplete }: SplashScreenProps) => {
       cancelled = true;
       clearInterval(tick);
     };
-  }, [onComplete]);
+  }, []);
 
   return (
     <PageBackdrop wide>
@@ -137,8 +131,8 @@ const SplashScreen = ({ onComplete }: SplashScreenProps) => {
           <div className="mt-auto w-full max-w-[360px] pt-10">
             <div className="h-3 w-full overflow-hidden rounded-full border border-[var(--gold-2)]/70 bg-black/40 p-0.5">
               <div
-                className="h-full rounded-full bg-gradient-to-r from-[var(--gold-1)] via-[var(--gold-2)] to-[var(--purple-2)] transition-all duration-150 ease-out"
-                style={{ width: `${progress}%` }}
+                className="h-full rounded-full bg-gradient-to-r from-[var(--gold-1)] via-[var(--gold-2)] to-[var(--purple-2)]"
+                style={{ width: `${progress}%`, transition: "width 120ms linear" }}
               />
             </div>
             <p className="mt-3 text-center text-[13px] font-semibold text-white/60">{status}</p>
