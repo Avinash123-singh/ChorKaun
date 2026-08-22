@@ -1,4 +1,3 @@
-import { MessageCircle } from "lucide-react";
 import { GameProvider, useGame } from "./state/gameStore";
 import SplashScreen from "./component/Splash/SplashScreen";
 import HomeScreen from "./component/Home/HomeScreen";
@@ -22,6 +21,8 @@ import RoundResultScreen from "./component/RoundResult/RoundResultScreen";
 import ScoreboardScreen from "./component/Scoreboard/ScoreboardScreen";
 import ChatPanel from "./component/Chat/ChatPanel";
 import PageBackdrop from "./component/shared/PageBackdrop";
+import VoiceChatFab from "./component/shared/VoiceChatFab";
+import InGameSettingsFab from "./component/shared/InGameSettingsFab";
 
 const WIDE_SCREENS = new Set([
   "lobby",
@@ -34,16 +35,8 @@ const WIDE_SCREENS = new Set([
   "leaderboard",
 ]);
 
-const CHAT_ENABLED_SCREENS = new Set([
-  "discussion",
-  "sipahiGuess",
-  "revealRoles",
-  "roundResult",
-  "scoreboard",
-]);
-
 const AppShell = () => {
-  const { state, setScreen, toggleChat } = useGame();
+  const { state, setScreen } = useGame();
   const { screen } = state;
   const backHome = () => setScreen("home");
 
@@ -119,21 +112,8 @@ const AppShell = () => {
   return (
     <>
       <PageBackdrop wide={WIDE_SCREENS.has(screen)}>{body}</PageBackdrop>
-
-      {CHAT_ENABLED_SCREENS.has(screen) && !state.chatOpen && (
-        <button
-          type="button"
-          onClick={toggleChat}
-          className="
-            fixed bottom-6 right-6 z-40 flex h-14 w-14 items-center justify-center
-            rounded-full border border-[var(--border-soft)] bg-[var(--bg-panel)]/95 text-[var(--gold-2)]
-            shadow-[0_10px_25px_rgba(0,0,0,0.5)] backdrop-blur transition hover:scale-105
-          "
-        >
-          <MessageCircle size={20} />
-        </button>
-      )}
-
+      <InGameSettingsFab />
+      <VoiceChatFab />
       <ChatPanel />
     </>
   );

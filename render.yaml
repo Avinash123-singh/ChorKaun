@@ -1,0 +1,23 @@
+# Render.com blueprint — connect GitHub repo and deploy with one click.
+# Live URL: https://chorkaun.onrender.com (or your custom domain)
+services:
+  - type: web
+    name: chorkaun
+    runtime: docker
+    plan: starter
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "8080"
+      - key: DATA_DIR
+        value: /data
+      - key: CLIENT_ORIGIN
+        value: "*"
+    disk:
+      name: chorkaun-data
+      mountPath: /data
+      sizeGB: 1

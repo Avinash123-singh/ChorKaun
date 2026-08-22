@@ -8,7 +8,7 @@ import { useGame } from "../../state/gameStore";
 import type { Screen } from "../../types/game";
 
 const HomeScreen = () => {
-  const { beginCreateRoom, beginJoinRoom, setScreen, joinRoom, state } = useGame();
+  const { beginCreateRoom, beginJoinRoom, setScreen, joinPublicMatch, state } = useGame();
 
   const go = (screen: Screen) => setScreen(screen);
 
@@ -37,7 +37,9 @@ const HomeScreen = () => {
                   setScreen("playerSetup");
                   return;
                 }
-                joinRoom(String(Math.floor(100000 + Math.random() * 900000)));
+                void joinPublicMatch().then((result) => {
+                  if (!result.ok) beginJoinRoom();
+                });
               }}
             />
           </div>

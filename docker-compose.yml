@@ -1,0 +1,30 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    ports:
+      - "4000:4000"
+    environment:
+      PORT: 4000
+      CLIENT_ORIGIN: "*"
+      DATA_DIR: /data
+    volumes:
+      - chorkaun_data:/data
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      # No VITE_API_URL build arg: the frontend calls same-origin /api and /socket.io,
+      # and nginx.conf proxies those to the backend. This means the single URL you open
+      # (localhost:8080, a tunnel URL, or a real domain later) always works, with no rebuild.
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  chorkaun_data:

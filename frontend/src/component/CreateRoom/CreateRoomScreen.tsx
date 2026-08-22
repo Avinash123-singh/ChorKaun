@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { Copy, Link2, Lock, Unlock } from "lucide-react";
+import { Lock, Unlock, Users } from "lucide-react";
 import ScreenShell from "../shared/ScreenShell";
 import { useGame } from "../../state/gameStore";
-import { ROLE_PORTRAIT } from "../../types/game";
+import { ROLE_ACCENT, ROLE_LABEL, ROLE_PORTRAIT } from "../../types/game";
 
 const ROUND_OPTIONS = [1, 3, 5, 7];
 
@@ -16,27 +16,12 @@ const CreateRoomScreen = ({ onBack }: CreateRoomScreenProps) => {
   const [roomName, setRoomName] = useState(`${hostName}'s Room`);
   const [totalRounds, setTotalRounds] = useState(3);
   const [isPrivate, setIsPrivate] = useState(true);
-  const [copied, setCopied] = useState(false);
-
-  const previewCode = "Will generate after create";
-  const previewLink = `${window.location.origin}/join/••••••`;
-
-  const copyPreview = async () => {
-    try {
-      await navigator.clipboard.writeText(
-        `Join my ChorKaun room!\nI'll share the code after creating.`,
-      );
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      /* ignore */
-    }
-  };
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
 
   return (
     <ScreenShell title="CREATE ROOM" onBack={onBack}>
       <div className="relative flex flex-1 flex-col gap-4 overflow-hidden">
-        {/* Decorative background inside panel */}
         <div className="pointer-events-none absolute inset-0 -z-0">
           <div className="absolute -right-8 -top-8 h-40 w-40 rounded-full bg-[var(--purple-3)]/25 blur-3xl" />
           <div className="absolute -left-10 bottom-20 h-44 w-44 rounded-full bg-[var(--gold-2)]/10 blur-3xl" />
@@ -52,14 +37,26 @@ const CreateRoomScreen = ({ onBack }: CreateRoomScreenProps) => {
           />
         </div>
 
-        <div className="relative z-10 flex gap-2 overflow-hidden rounded-2xl border border-[var(--border-soft)] bg-black/25 p-2">
+        {/* Full face portraits — taller cards, object-top so faces aren't cropped */}
+        <div className="relative z-10 grid grid-cols-4 gap-2">
           {(["raja", "sipahi", "mantri", "chor"] as const).map((role) => (
-            <img
+            <div
               key={role}
-              src={ROLE_PORTRAIT[role]}
-              alt={role}
-              className="h-14 flex-1 rounded-xl object-cover object-top opacity-90"
-            />
+              className="overflow-hidden rounded-2xl border-2 bg-black/40 shadow-lg"
+              style={{ borderColor: `${ROLE_ACCENT[role]}99` }}
+            >
+              <img
+                src={ROLE_PORTRAIT[role]}
+                alt={ROLE_LABEL[role]}
+                className="aspect-[3/4] h-auto w-full object-cover object-[center_15%]"
+              />
+              <p
+                className="bg-black/70 py-1 text-center text-[9px] font-black tracking-wide"
+                style={{ color: ROLE_ACCENT[role] }}
+              >
+                {ROLE_LABEL[role]}
+              </p>
+            </div>
           ))}
         </div>
 
@@ -96,69 +93,60 @@ const CreateRoomScreen = ({ onBack }: CreateRoomScreenProps) => {
               </button>
             ))}
           </div>
-          <p className="mt-1.5 text-[11px] text-white/45">
-            4 players only — Raja, Mantri, Chor & Sipahi each round.
+          <p className="mt-1.5 flex items-center gap-1.5 text-[11px] text-white/45">
+            <Users size={12} /> Exactly 4 players — Raja, Mantri, Chor & Sipahi
           </p>
         </div>
 
-        <div className="relative z-10 flex items-center justify-between rounded-xl border border-[var(--border-soft)] bg-[var(--bg-panel-2)]/80 px-4 py-3">
-          <div className="flex items-center gap-2">
-            {isPrivate ? (
-              <Lock size={16} className="text-[var(--gold-2)]" />
-            ) : (
-              <Unlock size={16} className="text-white/60" />
-            )}
-            <span className="text-[13px] font-semibold text-white">Private Room</span>
+        <div className="relative z-10 rounded-xl border border-[var(--border-soft)] bg-[var(--bg-panel-2)]/80 px-4 py-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              {isPrivate ? (
+                <Lock size={16} className="text-[var(--gold-2)]" />
+              ) : (
+                <Unlock size={16} className="text-white/60" />
+              )}
+              <span className="text-[13px] font-semibold text-white">Private Room</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsPrivate((v) => !v)}
+              className={`flex h-7 w-12 items-center rounded-full px-0.5 transition ${
+                isPrivate ? "justify-end bg-[var(--gold-2)]" : "justify-start bg-[var(--border-soft)]"
+              }`}
+            >
+              <span className="h-6 w-6 rounded-full bg-white shadow" />
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={() => setIsPrivate((v) => !v)}
-            className={`flex h-7 w-12 items-center rounded-full px-0.5 transition ${
-              isPrivate ? "justify-end bg-[var(--gold-2)]" : "justify-start bg-[var(--border-soft)]"
-            }`}
-          >
-            <span className="h-6 w-6 rounded-full bg-white shadow" />
-          </button>
-        </div>
-
-        <div className="relative z-10 rounded-xl border border-dashed border-[var(--gold-2)]/35 bg-black/25 p-3">
-          <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--gold-2)]/80">
-            Share after create
+          <p className="mt-2 text-[11px] leading-snug text-white/50">
+            {isPrivate
+              ? "Only friends with your room code / invite link can join. Hidden from public matchmaking."
+              : "Public room — anyone can find and join from Play Online."}
           </p>
-          <div className="space-y-2 text-[12px] text-white/70">
-            <div className="flex items-center justify-between gap-2">
-              <span>Room Code</span>
-              <span className="font-mono font-bold text-white/50">{previewCode}</span>
-            </div>
-            <div className="flex items-center justify-between gap-2">
-              <span className="flex items-center gap-1">
-                <Link2 size={12} /> Invite Link
-              </span>
-              <span className="max-w-[55%] truncate font-mono text-white/50">{previewLink}</span>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={copyPreview}
-            className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-[var(--border-soft)] py-2 text-[12px] font-semibold text-white/70 transition hover:bg-white/5"
-          >
-            <Copy size={14} /> {copied ? "Copied tip!" : "Ready to share with friends"}
-          </button>
         </div>
 
         <div className="relative z-10 flex-1" />
 
+        {error && <p className="relative z-10 text-center text-[12px] text-[var(--danger)]">{error}</p>}
+
         <button
           type="button"
-          onClick={() => createRoom(roomName, totalRounds, isPrivate)}
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            setError("");
+            const res = await createRoom(roomName, totalRounds, isPrivate);
+            if (!res.ok) setError(res.error || "Failed to create room");
+            setBusy(false);
+          }}
           className="
             relative z-10 w-full rounded-2xl bg-gradient-to-b from-[var(--gold-1)] via-[var(--gold-2)] to-[var(--gold-3)]
             py-3.5 text-[15px] font-black tracking-wide text-[#241600]
             shadow-[0_8px_20px_rgba(255,180,20,0.28),inset_0_1px_0_rgba(255,255,255,0.55)]
-            transition hover:scale-[1.01] active:scale-[0.98]
+            transition hover:scale-[1.01] active:scale-[0.98] disabled:opacity-50
           "
         >
-          CREATE ROOM
+          {busy ? "CREATING…" : "CREATE ROOM"}
         </button>
       </div>
     </ScreenShell>

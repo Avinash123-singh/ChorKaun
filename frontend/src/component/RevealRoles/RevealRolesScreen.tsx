@@ -3,14 +3,15 @@ import PlayerAvatar from "../shared/PlayerAvatar";
 import RoleBadge from "../shared/RoleBadge";
 import { useGame } from "../../state/gameStore";
 
+/** Optional wrap screen — roles are public after Sipahi guesses. */
 const RevealRolesScreen = () => {
   const { state, continueToResult } = useGame();
-  const { players, lastResult } = state;
-  const chor = players.find((p) => p.role === "chor");
+  const { players, myPlayerId } = state;
 
   return (
-    <ScreenShell title="REVEALING ROLES">
+    <ScreenShell title="ROUND WRAP">
       <div className="flex flex-1 flex-col gap-5">
+        <p className="text-center text-[12px] text-white/55">All roles revealed for this round</p>
         <div className="flex flex-col gap-2.5">
           {players.map((p) => (
             <div
@@ -19,33 +20,30 @@ const RevealRolesScreen = () => {
             >
               <div className="flex items-center gap-3">
                 <PlayerAvatar src={p.avatar} name={p.name} size={38} />
-                <span className="text-[13px] font-bold text-white">{p.name}</span>
+                <span className="text-[13px] font-bold text-white">
+                  {p.name}
+                  {p.id === myPlayerId ? " (You)" : ""}
+                </span>
               </div>
-              {p.role && <RoleBadge role={p.role} />}
+              {p.role ? (
+                <RoleBadge role={p.role} />
+              ) : (
+                <span className="rounded-full bg-white/10 px-2 py-1 text-[10px] font-bold text-white/40">
+                  —
+                </span>
+              )}
             </div>
           ))}
         </div>
 
         <div className="flex-1" />
 
-        {chor && (
-          <div className="rounded-xl border border-[var(--danger)]/40 bg-[#3a0f18] px-4 py-3 text-center">
-            <p className="text-[13px] font-black tracking-wide text-[var(--danger)]">
-              Chor was: {chor.name}
-            </p>
-          </div>
-        )}
-
         <button
+          type="button"
           onClick={continueToResult}
-          className="
-            w-full rounded-2xl bg-gradient-to-r from-[var(--gold-2)] to-[var(--gold-3)]
-            py-3.5 text-[15px] font-black tracking-wide text-[#241600]
-            shadow-[0_6px_15px_rgba(255,180,20,0.2)]
-            transition hover:scale-[1.01] active:scale-[0.98]
-          "
+          className="w-full rounded-2xl bg-gradient-to-r from-[var(--gold-2)] to-[var(--gold-3)] py-3.5 text-[15px] font-black text-[#241600]"
         >
-          {lastResult?.sipahiWon ? "SEE RESULT — SIPAHI WON!" : "SEE RESULT"}
+          SEE RESULT
         </button>
       </div>
     </ScreenShell>

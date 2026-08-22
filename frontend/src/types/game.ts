@@ -30,10 +30,12 @@ export const ROLE_CARD_BG: Record<Role, string> = {
 
 export const ROLE_POINTS: Record<Role, number> = {
   raja: 1000,
-  sipahi: 800,
-  mantri: 500,
-  chor: 0,
+  sipahi: 500,
+  mantri: 750,
+  chor: 500, // when Sipahi guesses wrong
 };
+
+export const SHUFFLE_ROLES: Role[] = ["raja", "mantri", "chor", "sipahi"];
 
 export const ROLE_MISSION: Record<Role, string> = {
   raja: "Announce points and enjoy the show.",
@@ -87,6 +89,7 @@ export interface Player {
 }
 
 export interface UserProfile {
+  id: string;
   name: string;
   avatar: string;
   level: number;
@@ -137,8 +140,9 @@ export interface RoundResultData {
   roundNumber: number;
   chorId: string;
   sipahiId: string;
-  guessId: string;
+  guessId: string | null;
   sipahiWon: boolean;
+  timedOut?: boolean;
   pointsAwarded: Record<string, number>;
 }
 
@@ -151,11 +155,14 @@ export interface GameState {
   isPrivate: boolean;
   password: string;
   players: Player[];
+  myPlayerId: string;
+  myRole: Role | null;
   round: number;
   totalRounds: number;
   revealIndex: number;
   discussionSecondsLeft: number;
   discussionDuration: number;
+  sipahiSecondsLeft: number;
   rajaPoints: number;
   sipahiGuessId: string | null;
   lastResult: RoundResultData | null;
@@ -166,6 +173,9 @@ export interface GameState {
   soundEnabled: boolean;
   suspenseMusic: boolean;
   micEnabled: boolean;
+  voiceListen: boolean;
   lobbySettingsOpen: boolean;
   setupNextScreen: Screen;
+  connected: boolean;
+  lastError: string;
 }
