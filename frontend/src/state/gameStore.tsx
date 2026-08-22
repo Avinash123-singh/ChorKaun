@@ -27,6 +27,9 @@ import { disableVoice, setListening } from "../lib/voiceChat";
 import { playClick, setSuspenseEnabled, stopSuspenseMusic } from "../lib/sound";
 
 const PROFILE_KEY = "chorkaun_user_id";
+const PROFILE_CACHE_KEY = "chorkaun_profile_cache";
+const SESSION_ROOM_KEY = "chorkaun_room_code";
+const SESSION_SCREEN_KEY = "chorkaun_screen";
 
 function emptyProfile(): UserProfile {
   return {
@@ -39,6 +42,48 @@ function emptyProfile(): UserProfile {
     wins: 0,
     setupComplete: false,
   };
+}
+
+function loadCachedProfile(): UserProfile {
+  try {
+    const raw = localStorage.getItem(PROFILE_CACHE_KEY);
+    if (!raw) return emptyProfile();
+    const p = JSON.parse(raw) as UserProfile;
+    if (!p?.id || !p?.name) return emptyProfile();
+    return { ...emptyProfile(), ...p, setupComplete: true };
+  } catch {
+    return emptyProfile();
+  }
+}
+
+function persistProfile(profile: UserProfile) {
+  try {
+    if (profile.id) localStorage.setItem(PROFILE_KEY, profile.id);
+    localStorage.setItem(
+      PROFILE_CACHE_KEY,
+      JSON.stringify({ ...profile, setupComplete: true }),
+    );
+  } catch {
+    /* private browsing / storage full */
+  }
+}
+
+function persistSession(roomCode: string, screen: Screen) {
+  try {
+    if (roomCode) sessionStorage.setItem(SESSION_ROOM_KEY, roomCode);
+    sessionStorage.setItem(SESSION_SCREEN_KEY, screen);
+  } catch {
+    /* ignore */
+  }
+}
+
+function clearSession() {
+  try {
+    sessionStorage.removeItem(SESSION_ROOM_KEY);
+    sessionStorage.removeItem(SESSION_SCREEN_KEY);
+  } catch {
+    /* ignore */
+  }
 }
 
 function syncTimers(room: any, state: GameState) {
@@ -72,8 +117,11 @@ function mapServerPlayers(
     totalScore: typeof p.totalScore === "number" ? p.totalScore : 0,
     lastRoundPoints: typeof points[p.id] === "number" ? points[p.id] : 0,
     micOn: !!p.micOn,
+    connected: p.connected !== false,
   }));
 }
+
+const cachedBootProfile = loadCachedProfile();
 
 const initialState: GameState = {
   screen: "splash",
@@ -84,7 +132,7 @@ const initialState: GameState = {
   isPrivate: true,
   password: "",
   players: [],
-  myPlayerId: "",
+  myPlayerId: cachedBootProfile.id || "",
   myRole: null,
   round: 1,
   totalRounds: 3,
@@ -97,7 +145,7 @@ const initialState: GameState = {
   lastResult: null,
   chatMessages: [],
   chatOpen: false,
-  userProfile: emptyProfile(),
+  userProfile: cachedBootProfile,
   notifications: [
     {
       id: "n1",
@@ -154,6 +202,7 @@ function reducer(state: GameState, action: Action): GameState {
     case "BEGIN_SETUP":
       return { ...state, setupNextScreen: action.next, screen: "playerSetup" };
     case "SET_PROFILE":
+      persistProfile(action.profile);
       return {
         ...state,
         userProfile: action.profile,
@@ -175,6 +224,9 @@ function reducer(state: GameState, action: Action): GameState {
       const myRole =
         (players.find((p) => p.id === (state.myPlayerId || state.userProfile.id))?.role as Role) ||
         state.myRole;
+      if (room.code) {
+        persistSession(room.code, state.screen === "splash" ? "lobby" : state.screen);
+      }
       return {
         ...state,
         roomId: room.code,
@@ -315,6 +367,7 @@ function reducer(state: GameState, action: Action): GameState {
     case "EXIT_ROOM":
       disableVoice();
       stopSuspenseMusic();
+      clearSession();
       return {
         ...initialState,
         screen: "home",
@@ -385,37 +438,90 @@ const GameContext = createContext<GameContextValue | null>(null);
 export function GameProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initialState);
 
-  // Load persisted user from DB via id
+  // Restore profile from server + reconnect socket; cache keeps profile across refresh.
   useEffect(() => {
-    const id = localStorage.getItem(PROFILE_KEY);
+    const id = localStorage.getItem(PROFILE_KEY) || cachedBootProfile.id;
     if (!id) return;
     void (async () => {
       try {
         const user = await apiGetUser(id);
         if (user) {
-          dispatch({
-            type: "SET_PROFILE",
-            profile: {
-              id: user.id,
-              name: user.name,
-              avatar: user.avatar,
-              level: user.level,
-              coins: user.coins,
-              gamesPlayed: user.gamesPlayed,
-              wins: user.wins,
-              setupComplete: true,
-            },
-          });
-          await connectSocket(user.id);
-          dispatch({ type: "SET_CONNECTED", connected: true });
-          wireSocket();
+          const profile: UserProfile = {
+            id: user.id,
+            name: user.name,
+            avatar: user.avatar,
+            level: user.level,
+            coins: user.coins,
+            gamesPlayed: user.gamesPlayed,
+            wins: user.wins,
+            setupComplete: true,
+          };
+          dispatch({ type: "SET_PROFILE", profile });
         }
+        await connectSocket(id);
+        dispatch({ type: "SET_CONNECTED", connected: true });
+        wireSocket();
       } catch {
+        if (cachedBootProfile.setupComplete) {
+          dispatch({ type: "SET_PROFILE", profile: cachedBootProfile });
+        }
         dispatch({ type: "SET_CONNECTED", connected: false });
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // After refresh, rejoin saved room and restore screen.
+  useEffect(() => {
+    if (!state.connected || !state.userProfile.id) return;
+    const savedCode = sessionStorage.getItem(SESSION_ROOM_KEY);
+    if (!savedCode || state.roomId === savedCode) return;
+
+    void (async () => {
+      const ack = await socketEmit<{
+        ok: boolean;
+        error?: string;
+        room?: any;
+        rejoined?: boolean;
+        myRole?: Role | null;
+        phase?: string;
+      }>("room:join", { code: savedCode });
+
+      if (!ack.ok || !ack.room) {
+        clearSession();
+        return;
+      }
+
+      dispatch({ type: "ROOM_SYNC", room: ack.room });
+      const savedScreen = sessionStorage.getItem(SESSION_SCREEN_KEY) as Screen | null;
+
+      if (ack.rejoined && ack.phase && ack.phase !== "lobby") {
+        if (ack.myRole && ack.phase === "roleReveal") {
+          dispatch({
+            type: "GAME_STARTED",
+            myRole: ack.myRole,
+            room: ack.room,
+            round: ack.room.round || 1,
+            totalRounds: ack.room.totalRounds || 3,
+          });
+        } else {
+          dispatch({
+            type: "PHASE_SYNC",
+            phase: ack.phase,
+            room: ack.room,
+            lastResult: ack.room.lastResult ?? null,
+          });
+        }
+        return;
+      }
+
+      const screen =
+        savedScreen && ["lobby", "roomCreated", "createRoom"].includes(savedScreen)
+          ? savedScreen
+          : "lobby";
+      dispatch({ type: "SET_SCREEN", screen });
+    })();
+  }, [state.connected, state.userProfile.id, state.roomId]);
 
   const wireSocket = useCallback(() => {
     const s = getSocket();
@@ -513,6 +619,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
         });
         if (!ack.ok || !ack.room) return { ok: false, error: ack.error || "Create failed" };
         dispatch({ type: "ROOM_SYNC", room: ack.room });
+        persistSession(ack.room.code, "roomCreated");
         dispatch({ type: "SET_SCREEN", screen: "roomCreated" });
         return { ok: true };
       } catch (e: any) {
@@ -540,6 +647,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
         }>("room:join", { code });
         if (!ack.ok || !ack.room) return { ok: false, error: ack.error || "Join failed" };
         dispatch({ type: "ROOM_SYNC", room: ack.room });
+        persistSession(ack.room.code, "lobby");
 
         if (ack.rejoined && ack.phase && ack.phase !== "lobby") {
           if (ack.myRole && ack.phase === "roleReveal") {
@@ -603,7 +711,10 @@ export function GameProvider({ children }: { children: ReactNode }) {
     createRoom,
     goToLobby: useCallback(async () => {
       const ack = await socketEmit<{ ok: boolean; error?: string; room?: any }>("room:enter-lobby");
-      if (ack?.room) dispatch({ type: "ROOM_SYNC", room: ack.room });
+      if (ack?.room) {
+        dispatch({ type: "ROOM_SYNC", room: ack.room });
+        persistSession(ack.room.code, "lobby");
+      }
       dispatch({ type: "SET_SCREEN", screen: "lobby" });
     }, []),
     joinRoom,

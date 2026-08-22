@@ -22,6 +22,7 @@ import {
   openLobby,
   personalGameStart,
   publicRoom,
+  removePlayerIfDisconnected,
   resetToLobby,
   setMic,
   setPhase,
@@ -89,7 +90,45 @@ app.get("/api/leaderboard", (_req, res) => {
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: { origin: CLIENT_ORIGIN === "*" ? true : CLIENT_ORIGIN, methods: ["GET", "POST"] },
+  pingTimeout: 60_000,
+  pingInterval: 25_000,
 });
+
+/** Grace period before removing a disconnected lobby player (page refresh / mobile sleep). */
+const LOBBY_DISCONNECT_GRACE_MS = 90_000;
+const lobbyDisconnectTimers = new Map();
+
+function graceKey(code, userId) {
+  return `${code}:${userId}`;
+}
+
+function clearLobbyGrace(code, userId) {
+  const key = graceKey(code, userId);
+  const t = lobbyDisconnectTimers.get(key);
+  if (t) clearTimeout(t);
+  lobbyDisconnectTimers.delete(key);
+}
+
+function scheduleLobbyGrace(code, userId) {
+  clearLobbyGrace(code, userId);
+  const key = graceKey(code, userId);
+  const t = setTimeout(() => {
+    lobbyDisconnectTimers.delete(key);
+    const room0 = getRoom(code);
+    const player = room0?.players.find((p) => p.id === userId);
+    if (!player || player.connected !== false) return;
+    const room = removePlayerIfDisconnected(code, userId);
+    if (room) {
+      notifyLeave(code, player.name || "Player");
+      broadcastRoom(room);
+      io.to(code).emit("voice:peer-left", { playerId: userId });
+      io.to(code).emit("room:host", { hostId: room.hostId });
+    } else {
+      notifyLeave(code, player?.name || "Player");
+    }
+  }, LOBBY_DISCONNECT_GRACE_MS);
+  lobbyDisconnectTimers.set(key, t);
+}
 
 function emitPhase(room, phase, extra = {}) {
   const reveal =
@@ -180,6 +219,7 @@ function reattachSocket(socket) {
   if (!userId) return null;
   const room = findRoomByUserId(userId);
   if (!room) return null;
+  clearLobbyGrace(room.code, userId);
   attachPlayerSocket(room.code, userId, socket.id);
   socket.join(room.code);
   socket.data.roomCode = room.code;
@@ -585,14 +625,11 @@ io.on("connection", (socket) => {
     const inLobby = room0?.phase === "lobby" && room0?.status === "lobby";
 
     if (inLobby) {
-      const room = leaveRoom(code, userId, { soft: false });
+      const room = leaveRoom(code, userId, { soft: true });
       if (room) {
-        notifyLeave(code, name);
+        scheduleLobbyGrace(code, userId);
         broadcastRoom(room);
         io.to(code).emit("voice:peer-left", { playerId: userId });
-        io.to(code).emit("room:host", { hostId: room.hostId });
-      } else {
-        notifyLeave(code, name);
       }
       return;
     }

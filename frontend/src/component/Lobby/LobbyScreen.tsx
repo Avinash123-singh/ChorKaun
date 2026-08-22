@@ -20,7 +20,9 @@ const LobbyScreen = () => {
   const { players, roomId, chatMessages, lobbySettingsOpen, myPlayerId, lastError } = state;
   const me = players.find((p) => p.id === myPlayerId);
   const isHost = me?.isHost;
-  const allReady = players.length === 4 && players.every((p) => p.isReady);
+  const allReady =
+    players.filter((p) => p.connected !== false).length === 4 &&
+    players.every((p) => p.connected === false || p.isReady);
   const [message, setMessage] = useState("");
 
   const slots = Array.from({ length: 4 }, (_, i) => players[i] || null);
@@ -121,7 +123,9 @@ const LobbyScreen = () => {
             p ? (
               <div
                 key={p.id}
-                className="flex items-center justify-between rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-panel-2)] px-3 py-2.5"
+                className={`flex items-center justify-between rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-panel-2)] px-3 py-2.5 ${
+                  p.connected === false ? "opacity-50" : ""
+                }`}
               >
                 <div className="flex items-center gap-3">
                   <PlayerAvatar src={p.avatar} name={p.name} crown={p.isHost} />
@@ -131,7 +135,13 @@ const LobbyScreen = () => {
                       {p.id === myPlayerId ? " (You)" : ""}
                       {p.isHost ? " · Host" : ""}
                     </p>
-                    <p className="text-[10px] text-white/45">{p.micOn ? "🎤 Mic on" : "Mic off"}</p>
+                    <p className="text-[10px] text-white/45">
+                      {p.connected === false
+                        ? "Reconnecting…"
+                        : p.micOn
+                          ? "🎤 Mic on"
+                          : "Mic off"}
+                    </p>
                   </div>
                 </div>
                 {p.id === myPlayerId ? (
@@ -207,7 +217,7 @@ const LobbyScreen = () => {
         <button
           type="button"
           onClick={() => void startGame()}
-          disabled={!isHost || !allReady}
+          disabled={!isHost || !allReady || players.filter((p) => p.connected !== false).length < 4}
           className="w-full rounded-2xl bg-gradient-to-b from-[var(--gold-1)] via-[var(--gold-2)] to-[var(--gold-3)] py-3.5 font-display text-[15px] font-bold text-[#241600] disabled:cursor-not-allowed disabled:opacity-40"
         >
           START GAME

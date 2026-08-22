@@ -33,6 +33,9 @@ export async function apiCreateUser(name: string, avatar: string) {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
+    if (res.status === 502) {
+      throw new Error("Server is restarting — wait a few seconds and try again.");
+    }
     throw new Error(err.error || "Could not create user");
   }
   return (await res.json()).user;
@@ -86,7 +89,12 @@ function waitForSocketAuth(sock: Socket, userId: string): Promise<Socket> {
     });
     sock.once("connect_error", (err) => {
       clearTimeout(timer);
-      reject(new Error(err?.message || "Cannot connect to server"));
+      const msg = err?.message || "Cannot connect to server";
+      if (msg.includes("poll")) {
+        reject(new Error("Connection lost — check network and try again."));
+      } else {
+        reject(new Error(msg));
+      }
     });
   });
 }
@@ -103,11 +111,12 @@ export function connectSocket(userId: string): Promise<Socket> {
   }
 
   socket = io(API_URL || undefined, {
+    path: "/socket.io/",
     transports: ["polling", "websocket"],
     upgrade: true,
     timeout: SOCKET_TIMEOUT_MS,
     reconnection: true,
-    reconnectionAttempts: 8,
+    reconnectionAttempts: 10,
     reconnectionDelay: 1000,
     reconnectionDelayMax: 5000,
   });

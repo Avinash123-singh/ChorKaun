@@ -86,6 +86,7 @@ export interface Player {
   lastRoundPoints: number;
   speaking?: boolean;
   micOn?: boolean;
+  connected?: boolean;
 }
 
 export interface UserProfile {

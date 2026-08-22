@@ -40,6 +40,11 @@ function persist(code) {
   if (room) saveRoomSnapshot(room);
 }
 
+function unpersist(code) {
+  rooms.delete(code);
+  deleteRoomSnapshot(code);
+}
+
 function commit(code, room) {
   if (!room) {
     unpersist(code);
@@ -158,7 +163,18 @@ export function attachPlayerSocket(code, userId, socketId) {
   if (!player) return null;
   player.socketId = socketId;
   player.connected = true;
+  if (room.phase === "lobby" && room.hostId === userId) {
+    player.isReady = true;
+  }
   return commit(code, room);
+}
+
+export function removePlayerIfDisconnected(code, playerId) {
+  const room = getRoom(code);
+  if (!room) return null;
+  const player = room.players.find((p) => p.id === playerId);
+  if (!player || player.connected !== false) return room;
+  return leaveRoom(code, playerId, { soft: false });
 }
 
 export function listPublicRooms() {
@@ -264,13 +280,6 @@ export function leaveRoom(code, playerId, { soft = false } = {}) {
       p.socketId = null;
       p.connected = false;
       p.micOn = false;
-    }
-    if (room.hostId === playerId) {
-      const next = room.players.find((x) => x.id !== playerId && x.connected !== false);
-      if (next) {
-        room.hostId = next.id;
-        next.isReady = true;
-      }
     }
     return commit(code, room);
   }
@@ -524,9 +533,7 @@ export function publicRoom(room, forPlayerId = null, { revealAll = false } = {})
     sipahiEndsAt: room.sipahiEndsAt,
     discussionSecondsLeft: secondsLeft(room.discussionEndsAt),
     sipahiSecondsLeft: secondsLeft(room.sipahiEndsAt),
-    players: room.players
-      .filter((p) => p.connected !== false)
-      .map((p) => ({
+    players: room.players.map((p) => ({
       id: p.id,
       name: p.name,
       avatar: p.avatar,
