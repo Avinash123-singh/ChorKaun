@@ -22,6 +22,10 @@ const SPLASH_ROLES: { role: Role; label: string }[] = [
   { role: "chor", label: "CHOR" },
 ];
 
+/** Always show splash at least this long so users can see the branding. */
+const MIN_SPLASH_MS = 4200;
+const READY_PAUSE_MS = 600;
+
 function preloadImages(urls: string[]): Promise<void> {
   let loaded = 0;
   const total = urls.length;
@@ -43,6 +47,10 @@ function preloadImages(urls: string[]): Promise<void> {
   });
 }
 
+function wait(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms));
+}
+
 const SplashScreen = ({ onComplete }: SplashScreenProps) => {
   const [progress, setProgress] = useState(0);
   const [status, setStatus] = useState("Loading the royal court…");
@@ -53,17 +61,22 @@ const SplashScreen = ({ onComplete }: SplashScreenProps) => {
       SPLASH_IMAGES.crown,
       ...SPLASH_ROLES.map((r) => SPLASH_IMAGES[r.role]),
     ];
+    const started = Date.now();
 
     const tick = setInterval(() => {
-      setProgress((p) => Math.min(p + 2, 90));
-    }, 60);
+      const elapsed = Date.now() - started;
+      const pct = Math.min(95, Math.round((elapsed / MIN_SPLASH_MS) * 95));
+      setProgress(pct);
+    }, 50);
 
-    void preloadImages(urls).then(() => {
+    void Promise.all([preloadImages(urls), wait(MIN_SPLASH_MS)]).then(() => {
       if (cancelled) return;
       clearInterval(tick);
       setProgress(100);
       setStatus("Ready!");
-      setTimeout(() => onComplete?.(), 300);
+      setTimeout(() => {
+        if (!cancelled) onComplete?.();
+      }, READY_PAUSE_MS);
     });
 
     return () => {
@@ -124,7 +137,7 @@ const SplashScreen = ({ onComplete }: SplashScreenProps) => {
           <div className="mt-auto w-full max-w-[360px] pt-10">
             <div className="h-3 w-full overflow-hidden rounded-full border border-[var(--gold-2)]/70 bg-black/40 p-0.5">
               <div
-                className="h-full rounded-full bg-gradient-to-r from-[var(--gold-1)] via-[var(--gold-2)] to-[var(--purple-2)] transition-all duration-75"
+                className="h-full rounded-full bg-gradient-to-r from-[var(--gold-1)] via-[var(--gold-2)] to-[var(--purple-2)] transition-all duration-150 ease-out"
                 style={{ width: `${progress}%` }}
               />
             </div>
