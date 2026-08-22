@@ -1,11 +1,11 @@
 #!/bin/sh
 set -e
 
-export PORT="${PORT:-8080}"
+NGINX_PORT="${PORT:-8080}"
 export DATA_DIR="${DATA_DIR:-/data}"
 mkdir -p "$DATA_DIR"
 
-node /app/backend/src/index.js &
+PORT=4000 node /app/backend/src/index.js &
 BACKEND_PID=$!
 
 for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
@@ -19,6 +19,7 @@ for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
   sleep 1
 done
 
+export PORT="$NGINX_PORT"
 envsubst '${PORT}' < /app/nginx.prod.conf > /etc/nginx/sites-enabled/default
 nginx -g 'daemon off;' &
 NGINX_PID=$!
