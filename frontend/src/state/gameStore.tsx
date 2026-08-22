@@ -601,7 +601,11 @@ export function GameProvider({ children }: { children: ReactNode }) {
     beginJoinRoom,
     beginEditProfile,
     createRoom,
-    goToLobby: useCallback(() => dispatch({ type: "SET_SCREEN", screen: "lobby" }), []),
+    goToLobby: useCallback(async () => {
+      const ack = await socketEmit<{ ok: boolean; error?: string; room?: any }>("room:enter-lobby");
+      if (ack?.room) dispatch({ type: "ROOM_SYNC", room: ack.room });
+      dispatch({ type: "SET_SCREEN", screen: "lobby" });
+    }, []),
     joinRoom,
     joinPublicMatch,
     toggleReady: useCallback(() => {

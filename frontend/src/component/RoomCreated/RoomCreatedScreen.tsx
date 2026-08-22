@@ -126,12 +126,15 @@ const RoomCreatedScreen = () => {
         <p className="-mt-2 text-center text-[11px] text-white/45">
           Opens share sheet (WhatsApp, Messages…) or copies a royal invite
         </p>
+        <p className="text-center text-[12px] font-semibold text-[var(--gold-2)]/80">
+          {state.players.length}/4 players waiting
+        </p>
 
         <div className="flex-1" />
 
         <button
           type="button"
-          onClick={goToLobby}
+          onClick={() => void goToLobby()}
           className="
             w-full rounded-2xl bg-gradient-to-b from-[var(--gold-1)] via-[var(--gold-2)] to-[var(--gold-3)]
             py-3.5 text-[15px] font-black tracking-wide text-[#241600]

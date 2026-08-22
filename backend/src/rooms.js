@@ -64,6 +64,7 @@ export function initRoomsFromDb() {
 
 function reconcileLoadedRoom(room) {
   if (!room?.code) return null;
+  if (room.lobbyOpen == null) room.lobbyOpen = room.phase === "lobby";
   room.players = (room.players || []).map((p) => ({
     ...p,
     socketId: null,
@@ -102,6 +103,7 @@ export function createRoom({ roomName, totalRounds, isPrivate, host }) {
     status: "lobby",
     phase: "lobby",
     hostId,
+    lobbyOpen: false,
     players: [
       {
         id: hostId,
@@ -134,9 +136,41 @@ export function getRoom(code) {
   return rooms.get(String(code)) || null;
 }
 
+export function findRoomByUserId(userId) {
+  if (!userId) return null;
+  for (const room of rooms.values()) {
+    if (room.players.some((p) => p.id === userId)) return room;
+  }
+  return null;
+}
+
+export function openLobby(code, hostId) {
+  const room = getRoom(code);
+  if (!room || room.hostId !== hostId) return null;
+  room.lobbyOpen = true;
+  return commit(code, room);
+}
+
+export function attachPlayerSocket(code, userId, socketId) {
+  const room = getRoom(code);
+  if (!room) return null;
+  const player = room.players.find((p) => p.id === userId);
+  if (!player) return null;
+  player.socketId = socketId;
+  player.connected = true;
+  return commit(code, room);
+}
+
 export function listPublicRooms() {
   return [...rooms.values()]
-    .filter((r) => !r.isPrivate && r.players.length < 4 && r.status !== "finished")
+    .filter(
+      (r) =>
+        !r.isPrivate &&
+        r.lobbyOpen &&
+        r.players.length < 4 &&
+        r.status !== "finished" &&
+        r.phase === "lobby",
+    )
     .map((r) => ({
       code: r.code,
       roomName: r.roomName,
@@ -151,7 +185,14 @@ export function listPublicRooms() {
 
 export function findOrCreatePublicRoom(host) {
   const open = [...rooms.values()]
-    .filter((r) => !r.isPrivate && r.players.length < 4 && r.status !== "finished")
+    .filter(
+      (r) =>
+        !r.isPrivate &&
+        r.lobbyOpen &&
+        r.players.length < 4 &&
+        r.status !== "finished" &&
+        r.phase === "lobby",
+    )
     .sort((a, b) => b.players.length - a.players.length);
   if (open.length) return open[0];
   return createRoom({
@@ -442,6 +483,18 @@ export function addChat(code, message) {
   return commit(code, room);
 }
 
+export function addSystemChat(code, text) {
+  const msg = {
+    id: `sys${Date.now()}`,
+    playerId: "system",
+    playerName: "ChorKaun",
+    text,
+    system: true,
+  };
+  addChat(code, msg);
+  return msg;
+}
+
 function secondsLeft(endsAt) {
   if (!endsAt) return null;
   return Math.max(0, Math.ceil((endsAt - Date.now()) / 1000));
@@ -471,7 +524,9 @@ export function publicRoom(room, forPlayerId = null, { revealAll = false } = {})
     sipahiEndsAt: room.sipahiEndsAt,
     discussionSecondsLeft: secondsLeft(room.discussionEndsAt),
     sipahiSecondsLeft: secondsLeft(room.sipahiEndsAt),
-    players: room.players.map((p) => ({
+    players: room.players
+      .filter((p) => p.connected !== false)
+      .map((p) => ({
       id: p.id,
       name: p.name,
       avatar: p.avatar,

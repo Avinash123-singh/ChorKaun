@@ -1,13 +1,30 @@
 import { useEffect, useState } from "react";
 import PageBackdrop from "../shared/PageBackdrop";
 import { ROLE_PORTRAIT } from "../../types/game";
+import { preloadAssets } from "../../lib/api";
 
 interface SplashScreenProps {
   onComplete?: () => void;
 }
 
+const PRELOAD_URLS = [
+  "/assets/crown.png",
+  "/assets/skyline.png",
+  ...Object.values(ROLE_PORTRAIT),
+  "/assets/rahul-avatar.png",
+  "/assets/aman-avatar.png",
+  "/assets/priya-avatar.png",
+  "/assets/neha-avatar.png",
+  "/assets/vikram-avatar.png",
+  "/assets/isha-avatar.png",
+];
+
 const SplashScreen = ({ onComplete }: SplashScreenProps) => {
   const [progress, setProgress] = useState(0);
+
+  useEffect(() => {
+    preloadAssets(PRELOAD_URLS);
+  }, []);
 
   useEffect(() => {
     const duration = 2800;
@@ -70,6 +87,8 @@ const SplashScreen = ({ onComplete }: SplashScreenProps) => {
                 <img
                   src={ROLE_PORTRAIT[role]}
                   alt={label}
+                  loading="eager"
+                  decoding="async"
                   className="aspect-[3/4] w-full object-cover object-top"
                 />
                 <p className="bg-black/50 py-1 text-center text-[10px] font-bold tracking-wide text-[var(--gold-2)]">

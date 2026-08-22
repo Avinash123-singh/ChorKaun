@@ -1,11 +1,8 @@
 import { io, type Socket } from "socket.io-client";
 
-// Empty string = same-origin. In dev (vite dev server), set VITE_API_URL to the
-// backend's own address (e.g. http://127.0.0.1:4000) via frontend/.env. In production
-// (Docker/nginx or any single-domain deploy), leave it unset — nginx proxies /api and
-// /socket.io to the backend on the same domain, so one public URL works everywhere,
-// including over a tunnel.
 const API_URL = import.meta.env.VITE_API_URL || "";
+const FETCH_TIMEOUT_MS = 30_000;
+const SOCKET_TIMEOUT_MS = 30_000;
 
 let socket: Socket | null = null;
 
@@ -13,8 +10,23 @@ export function getApiUrl() {
   return API_URL;
 }
 
+async function fetchWithTimeout(url: string, init?: RequestInit) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (err: any) {
+    if (err?.name === "AbortError") {
+      throw new Error("Server took too long — check your connection and try again.");
+    }
+    throw new Error("Cannot reach server — check your connection.");
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function apiCreateUser(name: string, avatar: string) {
-  const res = await fetch(`${API_URL}/api/users`, {
+  const res = await fetchWithTimeout(`${API_URL}/api/users`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name, avatar }),
@@ -27,13 +39,13 @@ export async function apiCreateUser(name: string, avatar: string) {
 }
 
 export async function apiGetUser(id: string) {
-  const res = await fetch(`${API_URL}/api/users/${id}`);
+  const res = await fetchWithTimeout(`${API_URL}/api/users/${id}`);
   if (!res.ok) return null;
   return (await res.json()).user;
 }
 
 export async function apiUpdateUser(id: string, patch: Record<string, unknown>) {
-  const res = await fetch(`${API_URL}/api/users/${id}`, {
+  const res = await fetchWithTimeout(`${API_URL}/api/users/${id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(patch),
@@ -43,30 +55,64 @@ export async function apiUpdateUser(id: string, patch: Record<string, unknown>) 
 }
 
 export async function apiGetLeaderboard() {
-  const res = await fetch(`${API_URL}/api/leaderboard`);
+  const res = await fetchWithTimeout(`${API_URL}/api/leaderboard`);
   if (!res.ok) return [];
   return (await res.json()).leaders || [];
 }
 
-export function connectSocket(userId: string): Promise<Socket> {
+function waitForSocketAuth(sock: Socket, userId: string): Promise<Socket> {
   return new Promise((resolve, reject) => {
-    if (socket?.connected) {
-      socket.emit("auth", { userId }, (ack: { ok: boolean; error?: string }) => {
-        if (ack?.ok) resolve(socket!);
-        else reject(new Error(ack?.error || "Auth failed"));
+    const timer = setTimeout(() => {
+      reject(new Error("Connection timed out — slow network, try again."));
+    }, SOCKET_TIMEOUT_MS);
+
+    const finish = (ok: boolean, error?: string) => {
+      clearTimeout(timer);
+      if (ok) resolve(sock);
+      else reject(new Error(error || "Auth failed"));
+    };
+
+    if (sock.connected) {
+      sock.emit("auth", { userId }, (ack: { ok: boolean; error?: string }) => {
+        finish(!!ack?.ok, ack?.error);
       });
       return;
     }
 
-    socket = io(API_URL || undefined, { transports: ["websocket", "polling"], autoConnect: true });
-    socket.on("connect", () => {
-      socket!.emit("auth", { userId }, (ack: { ok: boolean; error?: string }) => {
-        if (ack?.ok) resolve(socket!);
-        else reject(new Error(ack?.error || "Auth failed"));
+    sock.once("connect", () => {
+      sock.emit("auth", { userId }, (ack: { ok: boolean; error?: string }) => {
+        finish(!!ack?.ok, ack?.error);
       });
     });
-    socket.on("connect_error", (err) => reject(err));
+    sock.once("connect_error", (err) => {
+      clearTimeout(timer);
+      reject(new Error(err?.message || "Cannot connect to server"));
+    });
   });
+}
+
+export function connectSocket(userId: string): Promise<Socket> {
+  if (socket?.connected) {
+    return waitForSocketAuth(socket, userId);
+  }
+
+  if (socket) {
+    socket.removeAllListeners();
+    socket.disconnect();
+    socket = null;
+  }
+
+  socket = io(API_URL || undefined, {
+    transports: ["polling", "websocket"],
+    upgrade: true,
+    timeout: SOCKET_TIMEOUT_MS,
+    reconnection: true,
+    reconnectionAttempts: 8,
+    reconnectionDelay: 1000,
+    reconnectionDelayMax: 5000,
+  });
+
+  return waitForSocketAuth(socket, userId);
 }
 
 export function getSocket() {
@@ -87,6 +133,20 @@ export function socketEmit<T = unknown>(
       resolve({ ok: false, error: "Not connected to server" } as T & { ok: boolean; error?: string });
       return;
     }
-    socket.emit(event, payload, (ack: T & { ok: boolean; error?: string }) => resolve(ack));
+    const timer = setTimeout(() => {
+      resolve({ ok: false, error: "Request timed out — try again" } as T & { ok: boolean; error?: string });
+    }, SOCKET_TIMEOUT_MS);
+    socket.emit(event, payload, (ack: T & { ok: boolean; error?: string }) => {
+      clearTimeout(timer);
+      resolve(ack);
+    });
   });
+}
+
+/** Preload splash / avatar images so first paint is fast on slow networks. */
+export function preloadAssets(urls: string[]) {
+  for (const url of urls) {
+    const img = new Image();
+    img.src = url;
+  }
 }

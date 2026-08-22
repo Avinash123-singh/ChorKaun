@@ -112,6 +112,7 @@ export interface ChatMessage {
   playerId: string;
   playerName: string;
   text: string;
+  system?: boolean;
 }
 
 export type Screen =

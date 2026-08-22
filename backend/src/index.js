@@ -5,10 +5,13 @@ import { Server } from "socket.io";
 import { createUser, getLeaderboard, getUser, recordGameResults, updateUser } from "./db.js";
 import {
   addChat,
+  addSystemChat,
   armSipahiTimeout,
   armDiscussionTimeout,
+  attachPlayerSocket,
   createRoom,
   findOrCreatePublicRoom,
+  findRoomByUserId,
   getRoom,
   goScoreboard,
   initRoomsFromDb,
@@ -16,6 +19,7 @@ import {
   leaveRoom,
   listPublicRooms,
   nextRound,
+  openLobby,
   personalGameStart,
   publicRoom,
   resetToLobby,
@@ -140,19 +144,48 @@ function broadcastRoom(room) {
   if (!room) return;
   const revealAll =
     room.phase === "revealRoles" || room.phase === "roundResult" || room.phase === "scoreboard";
-  for (const p of room.players) {
-    if (p.socketId) {
-      io.to(p.socketId).emit("room:update", publicRoom(room, p.id, { revealAll }));
+  const inLobby = room.phase === "lobby" && room.status === "lobby";
+
+  if (inLobby) {
+    io.to(room.code).emit("room:update", publicRoom(room, null, { revealAll: false }));
+  } else {
+    for (const p of room.players) {
+      if (p.socketId) {
+        io.to(p.socketId).emit("room:update", publicRoom(room, p.id, { revealAll }));
+      }
     }
   }
+
   io.to(room.code).emit("room:presence", {
     code: room.code,
-    count: room.players.length,
+    count: room.players.filter((p) => p.connected !== false).length,
     maxPlayers: room.maxPlayers,
-    names: room.players.map((p) => p.name),
+    names: room.players.filter((p) => p.connected !== false).map((p) => p.name),
     phase: room.phase,
     hostId: room.hostId,
   });
+}
+
+function notifyLeave(code, playerName, { rejoinable = false } = {}) {
+  const text = rejoinable
+    ? `${playerName} disconnected — can rejoin with the room code.`
+    : `${playerName} left the lobby.`;
+  const msg = addSystemChat(code, text);
+  if (msg) io.to(code).emit("chat:message", msg);
+  return msg;
+}
+
+function reattachSocket(socket) {
+  const userId = socket.data.userId;
+  if (!userId) return null;
+  const room = findRoomByUserId(userId);
+  if (!room) return null;
+  attachPlayerSocket(room.code, userId, socket.id);
+  socket.join(room.code);
+  socket.data.roomCode = room.code;
+  socket.emit("room:update", publicRoom(room, userId));
+  broadcastRoom(room);
+  return room;
 }
 
 function emitPersonalStarts(room) {
@@ -181,6 +214,7 @@ io.on("connection", (socket) => {
       return;
     }
     socket.data.userId = user.id;
+    reattachSocket(socket);
     ack?.({ ok: true, user });
   });
 
@@ -200,9 +234,26 @@ io.on("connection", (socket) => {
       socket.join(room.code);
       socket.data.roomCode = room.code;
       ack?.({ ok: true, room: publicRoom(room, user.id) });
+      broadcastRoom(room);
     } catch (err) {
       ack?.({ ok: false, error: err.message || "Create failed" });
     }
+  });
+
+  socket.on("room:enter-lobby", (_payload, ack) => {
+    const code = socket.data.roomCode;
+    const userId = socket.data.userId;
+    if (!code || !userId) {
+      ack?.({ ok: false, error: "Not in a room" });
+      return;
+    }
+    const room = openLobby(code, userId);
+    if (!room) {
+      ack?.({ ok: false, error: "Only host can open lobby" });
+      return;
+    }
+    broadcastRoom(room);
+    ack?.({ ok: true, room: publicRoom(room, userId) });
   });
 
   socket.on("room:join-public", (_payload, ack) => {
@@ -238,6 +289,12 @@ io.on("connection", (socket) => {
       socket.join(room.code);
       socket.data.roomCode = room.code;
       broadcastRoom(room);
+
+      if (!alreadyIn) {
+        const joinMsg = addSystemChat(room.code, `${user.name} joined the lobby.`);
+        if (joinMsg) io.to(room.code).emit("chat:message", joinMsg);
+      }
+
       ack?.({
         ok: true,
         room: publicRoom(room, user.id),
@@ -264,6 +321,9 @@ io.on("connection", (socket) => {
       socket.join(room.code);
       socket.data.roomCode = room.code;
       broadcastRoom(room);
+
+      const joinMsg = addSystemChat(room.code, `${user.name} joined the lobby.`);
+      if (joinMsg) io.to(room.code).emit("chat:message", joinMsg);
 
       const personal = {
         ok: true,
@@ -309,13 +369,18 @@ io.on("connection", (socket) => {
     const code = socket.data.roomCode;
     const userId = socket.data.userId;
     if (code && userId) {
+      const room0 = getRoom(code);
+      const player = room0?.players.find((p) => p.id === userId);
       socket.leave(code);
       const room = leaveRoom(code, userId, { soft: false });
       socket.data.roomCode = null;
       if (room) {
+        if (player?.name) notifyLeave(code, player.name);
         broadcastRoom(room);
         io.to(code).emit("voice:peer-left", { playerId: userId });
         io.to(code).emit("room:host", { hostId: room.hostId });
+      } else if (player?.name) {
+        notifyLeave(code, player.name);
       }
     }
     ack?.({ ok: true });
@@ -513,9 +578,28 @@ io.on("connection", (socket) => {
     const code = socket.data.roomCode;
     const userId = socket.data.userId;
     if (!code || !userId) return;
-    // Soft leave — keep seat so they can rejoin with the same code
+
+    const room0 = getRoom(code);
+    const player = room0?.players.find((p) => p.id === userId);
+    const name = player?.name || "Player";
+    const inLobby = room0?.phase === "lobby" && room0?.status === "lobby";
+
+    if (inLobby) {
+      const room = leaveRoom(code, userId, { soft: false });
+      if (room) {
+        notifyLeave(code, name);
+        broadcastRoom(room);
+        io.to(code).emit("voice:peer-left", { playerId: userId });
+        io.to(code).emit("room:host", { hostId: room.hostId });
+      } else {
+        notifyLeave(code, name);
+      }
+      return;
+    }
+
     const room = leaveRoom(code, userId, { soft: true });
     if (room) {
+      notifyLeave(code, name, { rejoinable: true });
       broadcastRoom(room);
       io.to(code).emit("voice:peer-left", { playerId: userId });
     }

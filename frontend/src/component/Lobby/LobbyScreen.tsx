@@ -173,9 +173,18 @@ const LobbyScreen = () => {
             <p className="text-[12px] text-white/40">Chat with friends while you wait…</p>
           )}
           {chatMessages.slice(-8).map((m) => (
-            <p key={m.id} className="text-[12.5px] leading-snug">
-              <span className="font-bold text-[var(--gold-2)]">{m.playerName}: </span>
-              <span className="text-white/85">{m.text}</span>
+            <p
+              key={m.id}
+              className={`text-[12.5px] leading-snug ${m.system ? "italic text-white/55" : ""}`}
+            >
+              {m.system ? (
+                <span className="text-white/70">{m.text}</span>
+              ) : (
+                <>
+                  <span className="font-bold text-[var(--gold-2)]">{m.playerName}: </span>
+                  <span className="text-white/85">{m.text}</span>
+                </>
+              )}
             </p>
           ))}
         </div>
