@@ -21,7 +21,8 @@ WORKDIR /app
 COPY --from=frontend-build /app/frontend/dist /usr/share/nginx/html
 COPY nginx.prod.conf /app/nginx.prod.conf
 COPY start.sh /start.sh
-RUN chmod +x /start.sh && mkdir -p /data
+RUN chmod +x /start.sh && mkdir -p /data \
+  && chmod -R a+rX /usr/share/nginx/html
 
 ENV NODE_ENV=production
 ENV PORT=8080
