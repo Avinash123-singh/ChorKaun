@@ -20,6 +20,11 @@ services:
       # No VITE_API_URL build arg: the frontend calls same-origin /api and /socket.io,
       # and nginx.conf proxies those to the backend. This means the single URL you open
       # (localhost:8080, a tunnel URL, or a real domain later) always works, with no rebuild.
+    volumes:
+      # Serves the live build from frontend/dist-live instead of what's baked into the
+      # image, so a new build shows up on refresh with no docker rebuild needed.
+      # Remove this line for a real deploy so the image is self-contained again.
+      - ./frontend/dist-live:/usr/share/nginx/html:ro
     ports:
       - "8080:80"
     depends_on:

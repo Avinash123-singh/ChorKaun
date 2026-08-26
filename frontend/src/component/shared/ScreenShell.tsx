@@ -8,6 +8,7 @@ interface ScreenShellProps {
   children: ReactNode;
   footer?: ReactNode;
   noPad?: boolean;
+  className?: string;
 }
 
 /**
@@ -15,14 +16,23 @@ interface ScreenShellProps {
  * the full-viewport atmosphere; this supplies the glassy royal panel with a
  * gold-tinted border, soft glow and consistent header treatment.
  */
-const ScreenShell = ({ title, onBack, rightSlot, children, footer, noPad }: ScreenShellProps) => {
+const ScreenShell = ({
+  title,
+  onBack,
+  rightSlot,
+  children,
+  footer,
+  noPad,
+  className = "",
+}: ScreenShellProps) => {
   return (
     <div
-      className="
+      className={`
         relative flex min-h-[560px] w-full flex-col overflow-hidden rounded-[28px]
         border border-[rgba(255,200,60,0.28)] bg-[var(--bg-panel)]/92 backdrop-blur-xl
         shadow-[0_30px_80px_-20px_rgba(0,0,0,0.7),0_0_0_1px_rgba(255,200,60,0.1),inset_0_1px_0_rgba(255,255,255,0.06)]
-      "
+        ${className}
+      `}
     >
       {/* faint top sheen */}
       <div className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-white/[0.04] to-transparent" />
@@ -48,7 +58,9 @@ const ScreenShell = ({ title, onBack, rightSlot, children, footer, noPad }: Scre
         </header>
       )}
 
-      <main className={`relative flex flex-1 flex-col ${noPad ? "" : "px-6 py-6 sm:px-8"}`}>{children}</main>
+      <main className={`relative flex min-h-0 flex-1 flex-col ${noPad ? "" : "px-6 py-5 sm:px-8 sm:py-6"}`}>
+        {children}
+      </main>
 
       {footer && <div className="relative px-6 pb-6 sm:px-8">{footer}</div>}
     </div>

@@ -81,8 +81,12 @@ const PageBackdrop = ({ children, wide }: PageBackdropProps) => {
       </div>
 
       {/* Stage */}
-      <div className="relative z-10 flex min-h-screen w-full items-center justify-center px-4 py-8 sm:px-6 lg:py-10">
-        <div className={`w-full ${wide ? "max-w-[720px]" : "max-w-[480px]"}`}>{children}</div>
+      <div
+        className={`relative z-10 flex min-h-screen w-full items-center justify-center px-3 sm:px-5 ${
+          wide ? "py-3 sm:py-4" : "py-8 sm:px-6 lg:py-10"
+        }`}
+      >
+        <div className={`w-full ${wide ? "max-w-[1200px]" : "max-w-[480px]"}`}>{children}</div>
       </div>
     </div>
   );
